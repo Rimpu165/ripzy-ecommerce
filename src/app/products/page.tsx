@@ -2,6 +2,7 @@ import React from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import ProductCard from "@/components/ProductCard";
+import ProductSortSelect from "@/components/ProductSortSelect";
 import { Filter, SlidersHorizontal, Search, RotateCcw } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -123,22 +124,7 @@ export default async function ProductsPage({ searchParams }: SearchProps) {
         {/* Sorting controls */}
         <div className="flex items-center gap-3">
           <span className="text-xs font-semibold text-slate-500">Sort by:</span>
-          <form method="GET" className="relative">
-            {/* Preserve current params */}
-            {categorySlug && <input type="hidden" name="category" value={categorySlug} />}
-            {brandSlug && <input type="hidden" name="brand" value={brandSlug} />}
-            {search && <input type="hidden" name="search" value={search} />}
-
-            <select
-              name="sort"
-              defaultValue={sort}
-              onChange={(e) => (e.target.form as any)?.submit()}
-              className="pl-3 pr-8 py-1.5 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:border-indigo-500 cursor-pointer shadow-sm"
-            >
-              <option value="newest">Newest Arrivals</option>
-              <option value="name">Alphabetical (A-Z)</option>
-            </select>
-          </form>
+          <ProductSortSelect currentSort={sort} />
         </div>
       </div>
 
