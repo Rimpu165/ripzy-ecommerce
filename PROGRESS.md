@@ -101,14 +101,30 @@ Database schema is fully implemented in [`prisma/schema.prisma`](file:///prisma/
 
 ---
 
-## ⏭️ Next Phase Roadmap (Phase 2 & Enhancements)
-When you resume work, pick up from these Phase 2 items:
-1. **Customer Review Submission:** Add review form on PDP for verified buyers (1-5 stars, comments, photos) + Admin moderation queue (`/admin/reviews`).
-2. **Wishlist Page (`/wishlist`):** Toggle heart icon on cards, move items between wishlist and cart.
-3. **Instant Search Autocomplete:** 300ms debounced search popup in navbar with live product suggestions.
-4. **GST Tax Invoice PDF Generator:** Downloadable PDF invoice for completed orders on `/account/orders`.
-5. **CSV/Excel Export for Admin:** Export orders, inventory valuation, and sales reports.
-6. **Homepage CMS Banners Management:** Admin interface to add/edit hero banners without touching code.
+### Phase 2 Completed Features
+- [x] **Wishlist System (`/wishlist` & FR-WISH-01, FR-WISH-02):** Heart toggle on every product card, live count in navbar, move-to-bag action, dedicated `/wishlist` management page.
+- [x] **Instant Search Autocomplete (FR-CAT-05):** 300ms debounced live search dropdown in navbar showing up to 8 matched items with thumbnail, title, brand, and pricing.
+- [x] **Verified Reviews & Moderation (FR-REV-01 to FR-REV-04, FR-AREV-01):** Customer review submission enforcing Rule 10 (one review per product per customer), verified buyer status gating, and Admin review moderation queue (`/admin/reviews`) with approve, reject, and delete controls.
+- [x] **GST Tax Invoice Generator (FR-ORD-05 & FR-AORD-06):** Tax Invoice printable page (`/account/orders/[id]/invoice`) with GSTIN, HSN codes, CGST/SGST/IGST breakdown, digital signature stamp, and one-click PDF printing.
+- [x] **Admin Reports & CSV Export Engine (FR-RPT-01 to FR-RPT-05):** Dedicated `/admin/reports` page with live gross volume, GST collections, warehouse valuation, and 1-click CSV file exports for Orders, Inventory, and Tax Filings.
+
+---
+
+## 🔑 Demo Credentials (Seeded)
+| Role | Email | Password | Allowed Access |
+| :--- | :--- | :--- | :--- |
+| **Super Admin** | `admin@ripzy.com` | `Ripzy@1234` | Full access (`/admin`, staff, settings, reports) |
+| **Store Manager**| `manager@ripzy.com`| `Ripzy@1234` | Full access to products, orders, inventory, reports |
+| **Logistics Staff**| `staff@ripzy.com`| `Ripzy@1234` | Orders status update, inventory view |
+| **Customer** | `customer@ripzy.com`| `Ripzy@1234` | Storefront, cart, checkout, order history, wishlist |
+
+---
+
+## ⏭️ Phase 3 Roadmap & Enhancements
+1. **Abandoned Cart Email Scheduler (FR-NOTIF-02):** Background job triggering 24h reminders for abandoned carts.
+2. **Back-in-Stock Alerts (FR-NOTIF-03):** Email notification when out-of-stock items are restocked.
+3. **PWA & Offline Manifest:** Service worker, app manifest, installable on mobile devices.
+4. **Dark Mode Manual Toggle:** UI switcher for manual dark/light theme switching.
 
 ---
 

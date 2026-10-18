@@ -147,7 +147,15 @@ export default async function AccountOrdersPage() {
                     <Clock className="w-3.5 h-3.5 text-indigo-600" />
                     Estimated Dispatch within 24 Hours
                   </span>
-                  <span className="text-[11px]">GST 18% inclusive</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[11px] hidden sm:inline">GST 18% inclusive</span>
+                    <Link
+                      href={`/account/orders/${order.id}/invoice`}
+                      className="px-3 py-1 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-400 font-bold rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] shadow-sm transition-colors"
+                    >
+                      View GST Invoice →
+                    </Link>
+                  </div>
                 </div>
               </div>
             );

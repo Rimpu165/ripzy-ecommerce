@@ -3,7 +3,8 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useCart } from "@/context/CartContext";
-import { Star, ShoppingBag, Check } from "lucide-react";
+import { useWishlist } from "@/context/WishlistContext";
+import { Star, ShoppingBag, Check, Heart } from "lucide-react";
 
 export interface ProductCardProps {
   id: string;
@@ -22,6 +23,7 @@ export interface ProductCardProps {
 }
 
 export default function ProductCard({
+  id,
   name,
   slug,
   brandName,
@@ -34,6 +36,7 @@ export default function ProductCard({
   reviewCount = 124,
 }: ProductCardProps) {
   const { addToCart } = useCart();
+  const { isInWishlist, toggleWishlist } = useWishlist();
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
 
@@ -71,6 +74,23 @@ export default function ProductCard({
               {discountPercent}% OFF
             </div>
           )}
+
+          {/* Wishlist Button (FR-WISH-01) */}
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              toggleWishlist(id);
+            }}
+            className={`absolute top-2.5 right-2.5 p-2 rounded-full backdrop-blur-md transition-all ${
+              isInWishlist(id)
+                ? "bg-rose-50 text-rose-500 shadow-md scale-110"
+                : "bg-white/80 dark:bg-slate-900/80 text-slate-500 hover:text-rose-500 shadow-sm"
+            }`}
+            title={isInWishlist(id) ? "Remove from Wishlist" : "Add to Wishlist"}
+          >
+            <Heart className={`w-3.5 h-3.5 ${isInWishlist(id) ? "fill-rose-500" : ""}`} />
+          </button>
 
           {/* Stock State Badge (FR-PDP-03 & FR-CAT-07) */}
           <div className="absolute bottom-2.5 left-2.5">

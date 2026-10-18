@@ -65,15 +65,23 @@ export default async function AdminDashboardPage() {
           </span>
         </div>
 
-        <div className="flex items-center gap-6 text-xs font-semibold">
+        <div className="flex items-center gap-5 text-xs font-semibold">
           <Link href="/admin/orders" className="text-slate-300 hover:text-white transition-colors">
             Orders
           </Link>
           <Link href="/admin/products" className="text-slate-300 hover:text-white transition-colors">
             Products & Stock
           </Link>
+          <Link href="/admin/reviews" className="text-slate-300 hover:text-white transition-colors">
+            Reviews
+          </Link>
+          {["MANAGER", "SUPER_ADMIN"].includes(user.role) && (
+            <Link href="/admin/reports" className="text-slate-300 hover:text-white transition-colors">
+              Reports (CSV)
+            </Link>
+          )}
           <Link href="/" className="text-indigo-400 hover:underline flex items-center gap-1">
-            Back to Store <ArrowUpRight className="w-3.5 h-3.5" />
+            Store <ArrowUpRight className="w-3.5 h-3.5" />
           </Link>
         </div>
       </div>
