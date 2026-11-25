@@ -3,163 +3,203 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
-import { Package, Clock, CheckCircle2, ChevronRight, AlertCircle } from "lucide-react";
+import { Package, ChevronLeft, ChevronRight, FileText } from "lucide-react";
+import ReorderButton from "@/components/account/ReorderButton";
+import StatusChip from "@/components/account/StatusChip";
+import { cardCls, inr } from "@/components/account/styles";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "My Orders | Ripzy" };
 
-export default async function AccountOrdersPage() {
+const PAGE_SIZE = 10;
+const FILTERS = [
+  { key: "", label: "All" },
+  { key: "PENDING_PAYMENT", label: "Pending payment" },
+  { key: "CONFIRMED", label: "Confirmed" },
+  { key: "PROCESSING", label: "Processing" },
+  { key: "SHIPPED", label: "Shipped" },
+  { key: "DELIVERED", label: "Delivered" },
+  { key: "CANCELLED", label: "Cancelled" },
+];
+
+interface Props {
+  searchParams: Promise<{ status?: string; page?: string }>;
+}
+
+export default async function AccountOrdersPage({ searchParams }: Props) {
   const user = await getCurrentUser();
+  if (!user) redirect("/login?next=/account/orders");
 
-  if (!user) {
-    redirect("/login?next=/account/orders");
-  }
+  const sp = await searchParams;
+  const status = FILTERS.some((f) => f.key && f.key === sp.status) ? sp.status! : "";
+  const requestedPage = Math.max(1, parseInt(sp.page || "1", 10) || 1);
+
+  const where = { userId: user.id, ...(status ? { status } : {}) };
+  const total = await prisma.order.count({ where });
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const page = Math.min(requestedPage, totalPages);
 
   const orders = await prisma.order.findMany({
-    where: { userId: user.id },
-    include: {
-      items: true,
-      payments: true,
-      shipments: true,
-    },
+    where,
+    include: { items: true },
     orderBy: { createdAt: "desc" },
+    skip: (page - 1) * PAGE_SIZE,
+    take: PAGE_SIZE,
   });
 
+  const href = (p: number, s = status) => {
+    const q = new URLSearchParams();
+    if (s) q.set("status", s);
+    if (p > 1) q.set("page", String(p));
+    const qs = q.toString();
+    return `/account/orders${qs ? `?${qs}` : ""}`;
+  };
+
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+    <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-black text-slate-900 dark:text-white">Order History</h1>
-        <p className="text-xs text-slate-500 mt-1">
-          Review your past orders, delivery tracking, and invoice receipts
-        </p>
+        <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl">Orders</h1>
+        <p className="mt-1 text-sm text-slate-500">Track orders, view invoices, return or reorder.</p>
       </div>
 
+      <nav
+        className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0 [scrollbar-width:none]"
+        aria-label="Filter orders by status"
+      >
+        {FILTERS.map((f) => {
+          const active = status === f.key;
+          return (
+            <Link
+              key={f.key || "all"}
+              href={href(1, f.key)}
+              aria-current={active ? "true" : undefined}
+              className={`shrink-0 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                active
+                  ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+              }`}
+            >
+              {f.label}
+            </Link>
+          );
+        })}
+      </nav>
+
       {orders.length === 0 ? (
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-12 border border-slate-200 dark:border-slate-800 text-center space-y-4">
-          <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto text-slate-400">
-            <Package className="w-8 h-8" />
-          </div>
-          <h3 className="text-base font-bold text-slate-900 dark:text-white">No Orders Placed Yet</h3>
-          <p className="text-xs text-slate-500 max-w-sm mx-auto">
-            You haven't placed any orders with Ripzy yet. Discover our latest collections!
+        <div className={`${cardCls} p-10 text-center sm:p-14`}>
+          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+            <Package className="h-7 w-7" aria-hidden="true" />
+          </span>
+          <h2 className="mt-4 text-base font-semibold text-slate-900">
+            {status ? "No orders with this status" : "No orders yet"}
+          </h2>
+          <p className="mx-auto mt-1 max-w-sm text-sm text-slate-500">
+            {status ? "Try a different filter." : "When you place an order, you can track it here."}
           </p>
-          <Link
-            href="/products"
-            className="inline-block px-5 py-2.5 rounded-full bg-indigo-600 text-white font-bold text-xs shadow-md shadow-indigo-600/20"
-          >
-            Start Shopping
+          <Link href={status ? "/account/orders" : "/products"} className="btn-primary mt-5">
+            {status ? "Show all orders" : "Start shopping"}
           </Link>
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {orders.map((order) => {
-            let shippingAddr: any = {};
+            let shippingAddr: { fullName?: string } = {};
             try {
               shippingAddr = JSON.parse(order.shippingAddressJson);
-            } catch {}
+            } catch {
+              /* ignore */
+            }
+            const reorderItems = order.items
+              .filter((i) => i.variantId)
+              .map((i) => ({ variantId: i.variantId as string, quantity: i.quantity }));
 
             return (
-              <div
-                key={order.id}
-                className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm hover:shadow-md transition-shadow"
-              >
-                {/* Header info */}
-                <div className="p-5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4 text-xs">
-                  <div className="flex flex-wrap gap-6 items-center">
+              <article key={order.id} className={`${cardCls} overflow-hidden transition hover:shadow-card`}>
+                <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-slate-100 bg-slate-50/70 px-5 py-4 text-sm">
+                  <div className="flex flex-wrap gap-x-8 gap-y-2">
                     <div>
-                      <span className="text-slate-500 text-[10px] uppercase font-bold">Order Placed</span>
-                      <p className="font-semibold text-slate-900 dark:text-white">
-                        {new Date(order.createdAt).toLocaleDateString("en-IN", {
-                          day: "numeric",
-                          month: "short",
-                          year: "numeric",
-                        })}
+                      <p className="text-xs text-slate-500">Placed</p>
+                      <p className="font-medium text-slate-900">
+                        {order.createdAt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
                       </p>
                     </div>
                     <div>
-                      <span className="text-slate-500 text-[10px] uppercase font-bold">Total Amount</span>
-                      <p className="font-bold text-slate-900 dark:text-white">
-                        ₹{Math.round(order.grandTotal).toLocaleString("en-IN")}
-                      </p>
+                      <p className="text-xs text-slate-500">Total</p>
+                      <p className="font-medium text-slate-900">{inr(order.grandTotal)}</p>
                     </div>
-                    <div>
-                      <span className="text-slate-500 text-[10px] uppercase font-bold">Ship To</span>
-                      <p className="font-semibold text-slate-900 dark:text-white truncate max-w-[150px]">
-                        {shippingAddr.fullName || user.name}
-                      </p>
+                    <div className="hidden sm:block">
+                      <p className="text-xs text-slate-500">Ship to</p>
+                      <p className="max-w-[150px] truncate font-medium text-slate-900">{shippingAddr.fullName || user.name}</p>
                     </div>
                   </div>
-
                   <div className="flex items-center gap-3">
-                    <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
-                      {order.orderNumber}
-                    </span>
-                    <span
-                      className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                        order.status === "CONFIRMED"
-                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
-                          : order.status === "DELIVERED"
-                          ? "bg-indigo-100 text-indigo-700"
-                          : order.status === "PENDING_PAYMENT"
-                          ? "bg-amber-100 text-amber-700"
-                          : "bg-slate-100 text-slate-700"
-                      }`}
-                    >
-                      {order.status}
-                    </span>
+                    <span className="font-mono text-xs font-semibold text-slate-600">{order.orderNumber}</span>
+                    <StatusChip status={order.status} />
                   </div>
                 </div>
 
-                {/* Items */}
-                <div className="p-5 space-y-4">
+                <ul className="space-y-3 p-5">
                   {order.items.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between gap-4 text-xs">
-                      <div className="flex items-center gap-3 min-w-0">
+                    <li key={item.id} className="flex items-center justify-between gap-4 text-sm">
+                      <div className="flex min-w-0 items-center gap-3">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={item.image || "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=120&q=80"}
                           alt={item.productName}
-                          className="w-14 h-14 object-cover rounded-xl bg-slate-100 flex-shrink-0"
+                          className="h-14 w-14 shrink-0 rounded-xl bg-slate-100 object-cover"
                         />
                         <div className="min-w-0">
-                          <h4 className="font-bold text-slate-900 dark:text-white truncate">
-                            {item.productName}
-                          </h4>
-                          <p className="text-[11px] text-slate-500">
-                            {item.variantTitle} • Qty: {item.quantity}
+                          <p className="truncate font-medium text-slate-900">{item.productName}</p>
+                          <p className="text-xs text-slate-500">
+                            {item.variantTitle} · Qty {item.quantity}
                           </p>
-                          <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                            ₹{item.unitPrice.toLocaleString("en-IN")} each
-                          </span>
                         </div>
                       </div>
-
-                      <div className="text-right">
-                        <span className="text-sm font-bold text-slate-900 dark:text-white">
-                          ₹{Math.round(item.totalPrice).toLocaleString("en-IN")}
-                        </span>
-                      </div>
-                    </div>
+                      <span className="shrink-0 font-medium text-slate-900">{inr(item.totalPrice)}</span>
+                    </li>
                   ))}
-                </div>
+                </ul>
 
-                {/* Tracking / Footer notes */}
-                <div className="px-5 py-3 bg-slate-50/40 dark:bg-slate-800/20 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
-                  <span className="flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-indigo-600" />
-                    Estimated Dispatch within 24 Hours
-                  </span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-[11px] hidden sm:inline">GST 18% inclusive</span>
-                    <Link
-                      href={`/account/orders/${order.id}/invoice`}
-                      className="px-3 py-1 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-400 font-bold rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] shadow-sm transition-colors"
-                    >
-                      View GST Invoice →
-                    </Link>
-                  </div>
+                <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-5 py-3">
+                  <ReorderButton items={reorderItems} />
+                  <Link
+                    href={`/account/orders/${order.id}/invoice`}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <FileText className="h-3.5 w-3.5" aria-hidden="true" /> Invoice
+                  </Link>
+                  <Link
+                    href={`/account/orders/${order.id}`}
+                    className="inline-flex items-center rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
+                  >
+                    View details
+                  </Link>
                 </div>
-              </div>
+              </article>
             );
           })}
+
+          {totalPages > 1 && (
+            <nav aria-label="Pagination" className="flex items-center justify-between pt-2">
+              {page > 1 ? (
+                <Link href={href(page - 1)} className="flex items-center gap-1 text-sm font-medium text-indigo-600">
+                  <ChevronLeft className="h-4 w-4" aria-hidden="true" /> Previous
+                </Link>
+              ) : (
+                <span />
+              )}
+              <span className="text-xs text-slate-500">
+                Page {page} of {totalPages}
+              </span>
+              {page < totalPages ? (
+                <Link href={href(page + 1)} className="flex items-center gap-1 text-sm font-medium text-indigo-600">
+                  Next <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
+              ) : (
+                <span />
+              )}
+            </nav>
+          )}
         </div>
       )}
     </div>

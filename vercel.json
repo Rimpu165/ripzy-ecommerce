@@ -1,0 +1,7 @@
+{
+  "crons": [
+    { "path": "/api/cron/release-reservations", "schedule": "0 * * * *" },
+    { "path": "/api/cron/abandoned-carts", "schedule": "0 9 * * *" },
+    { "path": "/api/cron/back-in-stock", "schedule": "30 * * * *" }
+  ]
+}

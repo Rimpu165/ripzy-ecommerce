@@ -1,24 +1,19 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  ShoppingBag, User as UserIcon, Search, Menu, X, LogOut, ChevronDown, Heart, Package,
+  MapPin, Settings, LayoutDashboard, Truck, ShieldCheck, RotateCcw, Phone, ArrowRight,
+} from "lucide-react";
+import Logo from "@/components/ui/Logo";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
 import { useWishlist } from "@/context/WishlistContext";
-import {
-  ShoppingBag,
-  User as UserIcon,
-  Search,
-  Menu,
-  X,
-  ShieldCheck,
-  LogOut,
-  ChevronDown,
-  Heart,
-  ArrowRight,
-} from "lucide-react";
+import { useStorefront } from "@/lib/use-storefront";
 
-interface SearchSuggestion {
+interface Suggestion {
   id: string;
   name: string;
   slug: string;
@@ -27,328 +22,373 @@ interface SearchSuggestion {
   image: string;
 }
 
+const ADMIN_ROLES = ["SUPER_ADMIN", "MANAGER", "STAFF"];
+
 export default function Navbar() {
   const { user, logout } = useAuth();
   const { itemCount, setIsCartOpen } = useCart();
   const { wishlistCount } = useWishlist();
+  const store = useStorefront();
+  const router = useRouter();
+  const pathname = usePathname();
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [showSuggest, setShowSuggest] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [userOpen, setUserOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
+  const [scrolled, setScrolled] = useState(false);
 
-  const searchContainerRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLDivElement>(null);
+  const userRef = useRef<HTMLDivElement>(null);
 
-  // FR-CAT-05: 300ms debounce autocomplete
+  const closeAll = useCallback(() => {
+    setMenuOpen(false);
+    setUserOpen(false);
+    setShowSuggest(false);
+  }, []);
+
+  // Close menus on route change
   useEffect(() => {
-    if (!searchQuery.trim() || searchQuery.trim().length < 2) {
+    closeAll();
+  }, [pathname, closeAll]);
+
+  // Subtle shadow once the page scrolls
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 4);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Lock body scroll while the mobile drawer is open
+  useEffect(() => {
+    document.body.style.overflow = menuOpen ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [menuOpen]);
+
+  // Outside click + Escape
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (userRef.current && !userRef.current.contains(e.target as Node)) setUserOpen(false);
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) setShowSuggest(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeAll();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [closeAll]);
+
+  // Debounced autocomplete (FR-CAT-05, 300ms) with request cancellation
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
       setSuggestions([]);
-      setShowSuggestions(false);
+      setShowSuggest(false);
       return;
     }
-
+    const ctrl = new AbortController();
     const timer = setTimeout(async () => {
-      setIsSearching(true);
+      setSearching(true);
       try {
-        const res = await fetch(`/api/search/autocomplete?q=${encodeURIComponent(searchQuery.trim())}`);
+        const res = await fetch(`/api/search/autocomplete?q=${encodeURIComponent(q)}`, { signal: ctrl.signal });
         if (res.ok) {
           const data = await res.json();
           setSuggestions(data.suggestions || []);
-          setShowSuggestions(true);
+          setShowSuggest(true);
+          setActiveIdx(-1);
         }
-      } catch (err) {
-        console.error(err);
+      } catch {
+        /* aborted or offline */
       } finally {
-        setIsSearching(false);
+        setSearching(false);
       }
     }, 300);
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, [query]);
 
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
+  const submitSearch = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const q = query.trim();
+    if (!q) return;
+    closeAll();
+    router.push(`/products?search=${encodeURIComponent(q)}`);
+  };
 
-  // Click outside to close autocomplete
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
-        setShowSuggestions(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      setShowSuggestions(false);
-      window.location.href = `/products?search=${encodeURIComponent(searchQuery.trim())}`;
+  const onSearchKey = (e: React.KeyboardEvent) => {
+    if (!showSuggest || suggestions.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((i) => (i + 1) % suggestions.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
+    } else if (e.key === "Enter" && activeIdx >= 0) {
+      e.preventDefault();
+      closeAll();
+      router.push(`/products/${suggestions[activeIdx].slug}`);
     }
   };
 
-  const isAdminOrStaff = user && ["SUPER_ADMIN", "MANAGER", "STAFF"].includes(user.role);
+  const isAdmin = !!user && ADMIN_ROLES.includes(user.role);
+  const threshold = store.store.freeShippingThreshold;
+  const firstName = user?.name?.split(" ")[0] ?? "";
+
+  const searchBox = (idPrefix: string) => (
+    <div ref={idPrefix === "d" ? searchRef : undefined} className="relative w-full">
+      <form onSubmit={submitSearch} role="search" className="relative">
+        <label htmlFor={`${idPrefix}-search`} className="sr-only">Search products</label>
+        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <input
+          id={`${idPrefix}-search`}
+          type="search"
+          autoComplete="off"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onFocus={() => suggestions.length > 0 && setShowSuggest(true)}
+          onKeyDown={onSearchKey}
+          placeholder="Search for products, brands and more"
+          className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-20 text-sm text-slate-800 placeholder:text-slate-400 transition focus:border-indigo-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-50"
+        />
+        {searching && <span className="absolute right-20 top-1/2 -translate-y-1/2 text-xs text-slate-400">…</span>}
+        <button type="submit" className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700">
+          Search
+        </button>
+      </form>
+
+      {idPrefix === "d" && showSuggest && suggestions.length > 0 && (
+        <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-pop animate-fade-in">
+          <ul role="listbox" className="max-h-96 overflow-y-auto py-1.5">
+            {suggestions.map((s, i) => (
+              <li key={s.id} role="option" aria-selected={i === activeIdx}>
+                <Link
+                  href={`/products/${s.slug}`}
+                  onClick={closeAll}
+                  className={`flex items-center gap-3 px-3 py-2 transition ${i === activeIdx ? "bg-slate-50" : "hover:bg-slate-50"}`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={s.image} alt="" className="h-11 w-11 shrink-0 rounded-lg bg-slate-100 object-cover" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-slate-800">{s.name}</span>
+                    <span className="block text-xs text-slate-500">{s.brand || "Ripzy"}</span>
+                  </span>
+                  <span className="text-sm font-semibold text-slate-800">₹{s.price.toLocaleString("en-IN")}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <button onClick={() => submitSearch()} className="flex w-full items-center justify-center gap-1.5 border-t border-slate-100 bg-slate-50 py-2.5 text-xs font-semibold text-indigo-700 hover:bg-slate-100">
+            See all results for “{query.trim()}” <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  const iconBtn =
+    "relative inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-600 transition hover:bg-slate-100 hover:text-slate-900";
+  const badge =
+    "absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-indigo-600 px-1 text-[10px] font-semibold text-white ring-2 ring-white";
+
+  const menuItem = "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50";
 
   return (
-    <header className="sticky top-0 z-40 w-full backdrop-blur-md bg-white/80 dark:bg-slate-900/80 border-b border-slate-200/80 dark:border-slate-800 transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-        {/* Brand Logo */}
-        <div className="flex items-center gap-8">
-          <Link href="/" className="flex items-center gap-2 group">
-            <span className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-violet-600 to-rose-500 flex items-center justify-center text-white font-extrabold text-lg shadow-glow group-hover:scale-105 transition-transform">
-              R
-            </span>
-            <span className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">
-              Ripzy<span className="text-indigo-600 dark:text-indigo-400">.</span>
-            </span>
-          </Link>
-
-          {/* Desktop Nav Links */}
-          <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600 dark:text-slate-300">
-            <Link href="/products" className="hover:text-indigo-600 dark:hover:text-white transition-colors">
-              All Products
-            </Link>
-            <Link href="/products?category=electronics" className="hover:text-indigo-600 dark:hover:text-white transition-colors">
-              Electronics
-            </Link>
-            <Link href="/products?category=audio" className="hover:text-indigo-600 dark:hover:text-white transition-colors">
-              Audio
-            </Link>
-            <Link href="/products?category=workspace" className="hover:text-indigo-600 dark:hover:text-white transition-colors">
-              Keyboards
-            </Link>
-          </nav>
-        </div>
-
-        {/* Search Bar with Live Autocomplete (FR-CAT-05) */}
-        <div ref={searchContainerRef} className="hidden lg:flex flex-1 max-w-md relative">
-          <form onSubmit={handleSearch} className="w-full relative">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-              placeholder="Search audio, mechanical keyboards, phones..."
-              className="w-full pl-10 pr-4 py-2 text-sm bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white rounded-full border border-transparent focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-900 focus:outline-none transition-all shadow-inner"
-            />
-            <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-            {isSearching && (
-              <span className="absolute right-3.5 top-3 text-[10px] text-slate-400 animate-pulse">
-                ...
-              </span>
+    <header className="sticky top-0 z-40 w-full">
+      {/* Announcement bar */}
+      <div className="hidden border-b border-indigo-100 bg-indigo-50 text-slate-700 sm:block">
+        <div className="container-page flex h-9 items-center justify-between text-xs">
+          <p className="flex items-center gap-2">
+            <Truck className="h-3.5 w-3.5 text-indigo-600" />
+            Free delivery on orders above ₹{threshold.toLocaleString("en-IN")}
+          </p>
+          <div className="flex items-center gap-5 text-slate-600">
+            <span className="hidden items-center gap-1.5 md:flex"><RotateCcw className="h-3.5 w-3.5" />{store.store.returnWindowDays}-day easy returns</span>
+            <span className="hidden items-center gap-1.5 md:flex"><ShieldCheck className="h-3.5 w-3.5" />100% secure payments</span>
+            {store.store.supportPhone && (
+              <a href={`tel:${store.store.supportPhone.replace(/\s/g, "")}`} className="flex items-center gap-1.5 hover:text-indigo-700">
+                <Phone className="h-3.5 w-3.5" />{store.store.supportPhone}
+              </a>
             )}
-          </form>
-
-          {/* Autocomplete Dropdown */}
-          {showSuggestions && suggestions.length > 0 && (
-            <div className="absolute top-12 left-0 right-0 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 py-2 z-50 animate-slide-up max-h-96 overflow-y-auto">
-              <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-800">
-                Search Suggestions ({suggestions.length})
-              </div>
-              {suggestions.map((item) => (
-                <Link
-                  key={item.id}
-                  href={`/products/${item.slug}`}
-                  onClick={() => setShowSuggestions(false)}
-                  className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
-                >
-                  <img
-                    src={item.image}
-                    alt={item.name}
-                    className="w-10 h-10 object-cover rounded-lg bg-slate-100 dark:bg-slate-800 flex-shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                      {item.name}
-                    </p>
-                    <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">
-                      {item.brand || "Ripzy"}
-                    </p>
-                  </div>
-                  <span className="text-xs font-extrabold text-slate-900 dark:text-white">
-                    ₹{item.price.toLocaleString("en-IN")}
-                  </span>
-                </Link>
-              ))}
-              <div className="p-2 border-t border-slate-100 dark:border-slate-800 text-center">
-                <button
-                  onClick={handleSearch}
-                  className="text-xs font-bold text-indigo-600 hover:underline flex items-center justify-center gap-1 w-full"
-                >
-                  View all results for "{searchQuery}" <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          {/* Wishlist Icon (FR-WISH-01) */}
-          <Link
-            href="/wishlist"
-            className="relative p-2.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors"
-            aria-label="View Wishlist"
-          >
-            <Heart className="w-5 h-5 hover:text-rose-500 transition-colors" />
-            {wishlistCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center shadow-md">
-                {wishlistCount}
-              </span>
-            )}
-          </Link>
-
-          {/* Cart Trigger */}
-          <button
-            onClick={() => setIsCartOpen(true)}
-            className="relative p-2.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors"
-            aria-label="View Shopping Cart"
-          >
-            <ShoppingBag className="w-5 h-5" />
-            {itemCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-indigo-600 text-white text-[11px] font-bold w-5 h-5 rounded-full flex items-center justify-center animate-bounce shadow-md">
-                {itemCount}
-              </span>
-            )}
-          </button>
-
-          {/* User Account / Auth */}
-          {user ? (
-            <div className="relative">
-              <button
-                onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                className="flex items-center gap-2 p-1.5 pl-2 pr-3 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors"
-              >
-                <div className="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 flex items-center justify-center font-bold text-xs">
-                  {user.name.charAt(0)}
-                </div>
-                <span className="hidden sm:inline max-w-[100px] truncate">{user.name.split(" ")[0]}</span>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-              </button>
-
-              {userDropdownOpen && (
-                <div
-                  className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-800 py-2 z-50 animate-slide-up"
-                  onMouseLeave={() => setUserDropdownOpen(false)}
-                >
-                  <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800">
-                    <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{user.name}</p>
-                    <p className="text-xs text-slate-500 truncate">{user.email}</p>
-                    {user.role !== "CUSTOMER" && (
-                      <span className="inline-block mt-1 px-2 py-0.5 text-[10px] font-bold bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded-md">
-                        {user.role}
-                      </span>
-                    )}
-                  </div>
-
-                  {isAdminOrStaff && (
-                    <Link
-                      href="/admin"
-                      onClick={() => setUserDropdownOpen(false)}
-                      className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 font-semibold"
-                    >
-                      <ShieldCheck className="w-4 h-4" />
-                      Admin Dashboard
-                    </Link>
-                  )}
-
-                  <Link
-                    href="/account/orders"
-                    onClick={() => setUserDropdownOpen(false)}
-                    className="flex items-center gap-2.5 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                  >
-                    My Orders
-                  </Link>
-
-                  <Link
-                    href="/wishlist"
-                    onClick={() => setUserDropdownOpen(false)}
-                    className="flex items-center gap-2.5 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                  >
-                    My Wishlist ({wishlistCount})
-                  </Link>
-
-                  <button
-                    onClick={() => {
-                      setUserDropdownOpen(false);
-                      logout();
-                    }}
-                    className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-left"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    Sign Out
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Link
-                href="/login"
-                className="px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-200 hover:text-indigo-600 transition-colors"
-              >
-                Sign In
-              </Link>
-              <Link
-                href="/register"
-                className="hidden sm:inline-flex px-4 py-1.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-full shadow-sm hover:shadow transition-all"
-              >
-                Sign Up
-              </Link>
-            </div>
-          )}
-
-          {/* Mobile menu toggle */}
-          <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-          >
-            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
+          </div>
         </div>
       </div>
 
-      {/* Mobile Menu Dropdown */}
-      {mobileMenuOpen && (
-        <div className="md:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 pt-3 pb-6 space-y-3">
-          <form onSubmit={handleSearch} className="relative mb-3">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search products..."
-              className="w-full pl-10 pr-4 py-2 text-sm bg-slate-100 dark:bg-slate-800 rounded-full"
-            />
-            <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-          </form>
-          <Link
-            href="/products"
-            onClick={() => setMobileMenuOpen(false)}
-            className="block py-2 text-sm font-medium text-slate-700 dark:text-slate-300"
-          >
-            All Products
-          </Link>
-          <Link
-            href="/wishlist"
-            onClick={() => setMobileMenuOpen(false)}
-            className="block py-2 text-sm font-medium text-slate-700 dark:text-slate-300"
-          >
-            My Wishlist ({wishlistCount})
-          </Link>
-          <Link
-            href="/products?category=electronics"
-            onClick={() => setMobileMenuOpen(false)}
-            className="block py-2 text-sm font-medium text-slate-700 dark:text-slate-300"
-          >
-            Electronics
-          </Link>
-          <Link
-            href="/products?category=audio"
-            onClick={() => setMobileMenuOpen(false)}
-            className="block py-2 text-sm font-medium text-slate-700 dark:text-slate-300"
-          >
-            Audio & Headphones
-          </Link>
+      {/* Main bar */}
+      <div className={`border-b border-slate-200 bg-white transition-shadow ${scrolled ? "shadow-card" : ""}`}>
+        <div className="container-page flex h-16 items-center gap-3 sm:gap-5">
+          <button className={`${iconBtn} lg:hidden`} aria-label="Open menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>
+            <Menu className="h-5 w-5" />
+          </button>
+
+          <Logo size={34} />
+
+          <div className="mx-2 hidden max-w-2xl flex-1 md:block lg:mx-6">{searchBox("d")}</div>
+
+          <div className="ml-auto flex items-center gap-1">
+            <Link href="/wishlist" className={`${iconBtn} hidden sm:inline-flex`} aria-label={`Wishlist (${wishlistCount} items)`}>
+              <Heart className="h-5 w-5" />
+              {wishlistCount > 0 && <span className={badge}>{wishlistCount}</span>}
+            </Link>
+
+            {/* Account */}
+            <div ref={userRef} className="relative">
+              {user ? (
+                <>
+                  <button
+                    onClick={() => setUserOpen((o) => !o)}
+                    aria-haspopup="menu"
+                    aria-expanded={userOpen}
+                    className="flex h-10 items-center gap-2 rounded-xl px-2 text-sm text-slate-700 transition hover:bg-slate-100"
+                  >
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700">
+                      {firstName.charAt(0).toUpperCase()}
+                    </span>
+                    <span className="hidden max-w-[7rem] truncate font-medium xl:block">Hi, {firstName}</span>
+                    <ChevronDown className={`hidden h-4 w-4 text-slate-400 transition xl:block ${userOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {userOpen && (
+                    <div role="menu" className="absolute right-0 top-[calc(100%+8px)] w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-pop animate-fade-in">
+                      <div className="border-b border-slate-100 px-3 pb-2.5 pt-1.5">
+                        <p className="truncate text-sm font-semibold text-slate-900">{user.name}</p>
+                        <p className="truncate text-xs text-slate-500">{user.email}</p>
+                      </div>
+                      <div className="py-1.5">
+                        <Link role="menuitem" href="/account/orders" className={menuItem}><Package className="h-4 w-4 text-slate-400" />My orders</Link>
+                        <Link role="menuitem" href="/wishlist" className={menuItem}><Heart className="h-4 w-4 text-slate-400" />Wishlist</Link>
+                        <Link role="menuitem" href="/account/addresses" className={menuItem}><MapPin className="h-4 w-4 text-slate-400" />Saved addresses</Link>
+                        <Link role="menuitem" href="/account/profile" className={menuItem}><Settings className="h-4 w-4 text-slate-400" />Profile &amp; security</Link>
+                        {isAdmin && (
+                          <Link role="menuitem" href="/admin" className={`${menuItem} text-indigo-700`}><LayoutDashboard className="h-4 w-4" />Admin console</Link>
+                        )}
+                      </div>
+                      <button
+                        role="menuitem"
+                        onClick={() => { setUserOpen(false); logout(); }}
+                        className="flex w-full items-center gap-2.5 rounded-lg border-t border-slate-100 px-3 py-2.5 text-sm text-slate-600 transition hover:bg-slate-50"
+                      >
+                        <LogOut className="h-4 w-4 text-slate-400" />Sign out
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <Link href="/login" className="hidden h-10 items-center gap-2 rounded-xl px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100 sm:inline-flex">
+                    <UserIcon className="h-4 w-4" />Sign in
+                  </Link>
+                  <Link href="/register" className="hidden h-10 items-center rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700 sm:inline-flex">
+                    Sign up
+                  </Link>
+                  <Link href="/login" className={`${iconBtn} sm:hidden`} aria-label="Sign in"><UserIcon className="h-5 w-5" /></Link>
+                </div>
+              )}
+            </div>
+
+            <button onClick={() => setIsCartOpen(true)} className={iconBtn} aria-label={`Open cart (${itemCount} items)`}>
+              <ShoppingBag className="h-5 w-5" />
+              {itemCount > 0 && <span className={badge}>{itemCount}</span>}
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile search */}
+        <div className="container-page pb-3 md:hidden">{searchBox("m")}</div>
+
+        {/* Category strip */}
+        <nav aria-label="Categories" className="hidden border-t border-slate-100 lg:block">
+          <ul className="container-page flex h-11 items-center gap-1 text-sm">
+            <li>
+              <Link href="/products" className={`inline-flex h-8 items-center rounded-lg px-3 font-medium transition hover:bg-slate-100 ${pathname === "/products" ? "text-indigo-700" : "text-slate-700"}`}>
+                All products
+              </Link>
+            </li>
+            {store.categories.map((c) => (
+              <li key={c.id}>
+                <Link href={`/products?category=${c.slug}`} className="inline-flex h-8 items-center rounded-lg px-3 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900">
+                  {c.name}
+                </Link>
+              </li>
+            ))}
+            <li className="ml-auto">
+              <Link href="/products?sort=newest" className="inline-flex h-8 items-center rounded-lg px-3 font-medium text-indigo-700 transition hover:bg-indigo-50">
+                New arrivals
+              </Link>
+            </li>
+          </ul>
+        </nav>
+      </div>
+
+      {/* Mobile drawer */}
+      {menuOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
+          <div className="absolute inset-0 bg-slate-900/40 animate-fade-in" onClick={() => setMenuOpen(false)} />
+          <div className="absolute inset-y-0 left-0 flex w-[84%] max-w-sm flex-col bg-white shadow-pop">
+            <div className="flex h-16 items-center justify-between border-b border-slate-100 px-4">
+              <Logo size={32} />
+              <button className={iconBtn} aria-label="Close menu" onClick={() => setMenuOpen(false)}><X className="h-5 w-5" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-3 py-4">
+              {user ? (
+                <div className="mb-4 flex items-center gap-3 rounded-2xl bg-slate-50 p-3">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 font-semibold text-indigo-700">{firstName.charAt(0).toUpperCase()}</span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">{user.name}</p>
+                    <p className="truncate text-xs text-slate-500">{user.email}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="mb-4 grid grid-cols-2 gap-2">
+                  <Link href="/login" className="btn-secondary">Sign in</Link>
+                  <Link href="/register" className="btn-primary">Sign up</Link>
+                </div>
+              )}
+
+              <p className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Shop</p>
+              <Link href="/products" className={menuItem}>All products</Link>
+              {store.categories.map((c) => (
+                <Link key={c.id} href={`/products?category=${c.slug}`} className={menuItem}>{c.name}</Link>
+              ))}
+              <Link href="/products?sort=newest" className={`${menuItem} text-indigo-700`}>New arrivals</Link>
+
+              {user && (
+                <>
+                  <p className="px-3 pb-1 pt-5 text-xs font-medium uppercase tracking-wide text-slate-400">Account</p>
+                  <Link href="/account/orders" className={menuItem}><Package className="h-4 w-4 text-slate-400" />My orders</Link>
+                  <Link href="/wishlist" className={menuItem}><Heart className="h-4 w-4 text-slate-400" />Wishlist{wishlistCount > 0 && <span className="ml-auto text-xs text-slate-500">{wishlistCount}</span>}</Link>
+                  <Link href="/account/addresses" className={menuItem}><MapPin className="h-4 w-4 text-slate-400" />Saved addresses</Link>
+                  <Link href="/account/profile" className={menuItem}><Settings className="h-4 w-4 text-slate-400" />Profile &amp; security</Link>
+                  {isAdmin && <Link href="/admin" className={`${menuItem} text-indigo-700`}><LayoutDashboard className="h-4 w-4" />Admin console</Link>}
+                </>
+              )}
+              {!user && <Link href="/wishlist" className={`${menuItem} mt-3`}><Heart className="h-4 w-4 text-slate-400" />Wishlist</Link>}
+
+              {store.pages.length > 0 && (
+                <>
+                  <p className="px-3 pb-1 pt-5 text-xs font-medium uppercase tracking-wide text-slate-400">Help</p>
+                  {store.pages.slice(0, 6).map((p) => (
+                    <Link key={p.slug} href={`/pages/${p.slug}`} className={menuItem}>{p.title}</Link>
+                  ))}
+                </>
+              )}
+            </div>
+            {user && (
+              <div className="border-t border-slate-100 p-3">
+                <button onClick={() => { setMenuOpen(false); logout(); }} className="btn-secondary w-full"><LogOut className="h-4 w-4" />Sign out</button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </header>

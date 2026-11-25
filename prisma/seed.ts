@@ -359,6 +359,8 @@ async function main() {
   });
 
   // 6. Promotional Banners (FR-CMS-01, FR-HOME-01)
+  // idempotent: remove previously seeded copies before re-creating (re-running the seed must not duplicate banners)
+  await prisma.banner.deleteMany({ where: { title: { in: ["Immerse in Pure Sound", "Tactile Precision for Developers"] } } });
   await prisma.banner.createMany({
     data: [
       {
@@ -409,6 +411,19 @@ async function main() {
       usageLimitPerUser: 1,
     },
   });
+
+  // CMS pages linked from the storefront footer (editable in /admin/pages)
+  const cmsPages = [
+    ["about", "About Ripzy", "# About Ripzy\n\nRipzy curates premium electronics and workspace gear with fast delivery across India.\n\n- Genuine products with brand warranty\n- Secure checkout via Razorpay or Cash on Delivery\n- Easy 7-day returns"],
+    ["shipping", "Shipping Policy", "# Shipping Policy\n\nOrders above the free-shipping threshold ship free. Orders are dispatched within 1-2 business days and typically arrive in 3-7 days."],
+    ["returns", "Returns & Refunds", "# Returns & Refunds\n\nYou can request a return within the return window after delivery. Prepaid orders are refunded to the original payment method; COD refunds are reconciled manually."],
+    ["privacy", "Privacy Policy", "# Privacy Policy\n\nWe only collect the information needed to process your orders and never sell your personal data."],
+    ["terms", "Terms & Conditions", "# Terms & Conditions\n\nBy using Ripzy you agree to these terms. Prices include applicable GST. Ripzy may cancel orders affected by pricing or stock errors."],
+    ["faq", "FAQ", "# Frequently Asked Questions\n\n**How do I track my order?** Open My Orders in your account.\n\n**Can I cancel an order?** Yes, until it has shipped."],
+  ];
+  for (const [slug, title, content] of cmsPages) {
+    await prisma.page.upsert({ where: { slug }, update: {}, create: { slug, title, content, isPublished: true } });
+  }
 
   console.log("✅ Seed completed successfully!");
 }

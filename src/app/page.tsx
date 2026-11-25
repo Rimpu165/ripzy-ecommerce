@@ -1,224 +1,199 @@
 import React from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import ProductCard from "@/components/ProductCard";
-import { ArrowRight, Sparkles, Zap, Headphones, Keyboard, Smartphone, ShieldCheck } from "lucide-react";
+import HeroCarousel, { type HeroSlide } from "@/components/HeroCarousel";
+import { getActiveBanners } from "@/lib/marketing";
+import SectionHeader from "@/components/store/SectionHeader";
+import TrustStrip from "@/components/store/TrustStrip";
+import ProductRail from "@/components/store/ProductRail";
+import NewsletterCta from "@/components/store/NewsletterCta";
+import { toCardProps } from "@/components/store/cardProps";
+import { Headphones, Keyboard, Smartphone, Laptop, Watch, Package, Percent, Headset, Wallet, BadgeCheck, Truck } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
+const CATEGORY_ICONS = [Headphones, Keyboard, Smartphone, Laptop, Watch, Package];
+
 export default async function HomePage() {
-  // Fetch banners, categories, and featured products directly from Prisma
-  const banners = await prisma.banner.findMany({
-    where: { isActive: true },
-    orderBy: { sortOrder: "asc" },
-  });
+  // Active, scheduled banners (cached, tag "banners")
+  const banners = await getActiveBanners();
 
-  const categories = await prisma.category.findMany({
-    where: { isActive: true },
-    include: {
-      _count: { select: { products: true } },
-    },
-    take: 6,
-  });
+  const [categories, brands, pool] = await Promise.all([
+    prisma.category.findMany({
+      where: { isActive: true },
+      include: { _count: { select: { products: true } } },
+      orderBy: { sortOrder: "asc" },
+      take: 6,
+    }),
+    prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, take: 8 }),
+    prisma.product.findMany({
+      where: { status: "ACTIVE", deletedAt: null },
+      include: {
+        brand: true,
+        category: true,
+        variants: { orderBy: { price: "asc" } },
+        images: { orderBy: { sortOrder: "asc" } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 48,
+    }),
+  ]);
 
-  const featuredProducts = await prisma.product.findMany({
-    where: { status: "ACTIVE", deletedAt: null },
-    include: {
-      brand: true,
-      category: true,
-      variants: true,
-      images: { orderBy: { sortOrder: "asc" } },
-    },
-    take: 8,
-  });
+  const ratingRows = pool.length
+    ? await prisma.review.groupBy({
+        by: ["productId"],
+        where: { productId: { in: pool.map((p) => p.id) }, status: "APPROVED" },
+        _avg: { rating: true },
+        _count: { rating: true },
+      })
+    : [];
+  const ratings = new Map(ratingRows.map((r) => [r.productId, { avg: r._avg.rating ?? 0, count: r._count.rating }]));
+  const card = (p: (typeof pool)[number]) => toCardProps(p, ratings.get(p.id));
 
-  const heroBanner = banners[0] || {
-    title: "Next-Gen Audio Experience",
-    subtitle: "Experience flagship active noise cancellation with the new Sony & Apple collections.",
-    badge: "FLAGSHIP COLLECTION 2026",
+  const featuredPool = pool.filter((p) => p.isFeatured);
+  const featured = (featuredPool.length >= 4 ? featuredPool : pool).slice(0, 4).map(card);
+  const newArrivals = pool.slice(0, 4).map(card);
+  const topRated = [...pool]
+    .filter((p) => (ratings.get(p.id)?.count ?? 0) > 0)
+    .sort((a, b) => (ratings.get(b.id)!.avg - ratings.get(a.id)!.avg) || (ratings.get(b.id)!.count - ratings.get(a.id)!.count))
+    .slice(0, 4)
+    .map(card);
+  const deals = pool
+    .map((p) => {
+      const v = p.variants.find((x) => x.stock - x.reservedStock > 0) ?? p.variants[0];
+      const off = v?.compareAtPrice && v.compareAtPrice > v.price ? (v.compareAtPrice - v.price) / v.compareAtPrice : 0;
+      return { p, off };
+    })
+    .filter((x) => x.off > 0)
+    .sort((a, b) => b.off - a.off)
+    .slice(0, 4)
+    .map((x) => card(x.p));
+
+  const fallbackSlide: HeroSlide = {
+    id: "default",
+    title: "Next-gen audio, delivered fast",
+    subtitle: "Flagship noise cancellation from the brands you trust, with genuine warranty.",
+    badge: "New collection 2026",
     linkUrl: "/products",
     imageUrl: "https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=1600&q=80",
   };
+  const slides: HeroSlide[] = banners.length > 0 ? banners : [fallbackSlide];
+
+  const benefits = [
+    { icon: Truck, title: "Fast delivery", text: "Dispatched quickly and delivered in 2-3 business days." },
+    { icon: BadgeCheck, title: "100% genuine", text: "Every product is sourced from authorised brands." },
+    { icon: Wallet, title: "Flexible payments", text: "Pay with UPI, cards, netbanking or cash on delivery." },
+    { icon: Headset, title: "Real support", text: "Friendly help before and after you buy." },
+  ];
 
   return (
-    <div className="space-y-16 pb-20">
-      {/* 1. Hero Section */}
-      <section className="relative px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto pt-6">
-        <div className="relative rounded-[2.5rem] overflow-hidden bg-slate-900 border border-slate-800 shadow-2xl min-h-[460px] md:min-h-[520px] flex items-center">
-          <img
-            src={heroBanner.imageUrl}
-            alt={heroBanner.title}
-            className="absolute inset-0 w-full h-full object-cover object-center opacity-45 mix-blend-luminosity scale-105 hover:scale-100 transition-transform duration-1000"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/80 to-transparent" />
+    <div className="space-y-12 pb-16 sm:space-y-14">
+      <HeroCarousel slides={slides} promoCode={banners.length === 0 ? "RIPZY10" : undefined} />
 
-          <div className="relative z-10 max-w-2xl p-8 sm:p-12 lg:p-16 space-y-6">
-            {heroBanner.badge && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 backdrop-blur-md">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                {heroBanner.badge}
-              </span>
-            )}
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-[1.1]">
-              {heroBanner.title}
-            </h1>
-            <p className="text-base sm:text-lg text-slate-300 leading-relaxed max-w-lg">
-              {heroBanner.subtitle}
-            </p>
-            <div className="flex flex-wrap items-center gap-4 pt-2">
-              <Link
-                href={heroBanner.linkUrl || "/products"}
-                className="inline-flex items-center gap-2 px-7 py-3.5 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm shadow-xl shadow-indigo-600/30 transition-all hover:scale-105 active:scale-95"
-              >
-                Explore Collection
-                <ArrowRight className="w-4 h-4" />
-              </Link>
-              <div className="flex items-center gap-2 text-xs font-medium text-slate-300 bg-white/10 backdrop-blur-md px-4 py-3 rounded-full border border-white/10">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>Use code <strong className="text-white">RIPZY10</strong> for 10% off</span>
-              </div>
-            </div>
+      <div className="container-page">
+        <TrustStrip />
+      </div>
+
+      {/* Categories */}
+      {categories.length > 0 && (
+        <section aria-labelledby="cat-heading" className="container-page">
+          <SectionHeader id="cat-heading" title="Shop by category" href="/products" />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-6">
+            {categories.map((c, i) => {
+              const Icon = CATEGORY_ICONS[i % CATEGORY_ICONS.length];
+              return (
+                <Link
+                  key={c.id}
+                  href={`/products?category=${c.slug}`}
+                  className="group card flex flex-col items-center gap-3 p-4 text-center transition hover:-translate-y-0.5 hover:shadow-card"
+                >
+                  <span className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-indigo-50 text-indigo-600">
+                    {c.image ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={c.image} alt="" loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                    ) : (
+                      <Icon className="h-8 w-8" />
+                    )}
+                  </span>
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-900 group-hover:text-indigo-600">{c.name}</span>
+                    <span className="block text-xs text-slate-500">
+                      {c._count.products} {c._count.products === 1 ? "product" : "products"}
+                    </span>
+                  </span>
+                </Link>
+              );
+            })}
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
-      {/* 2. Category Highlights (FR-HOME-02) */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-end justify-between mb-8">
-          <div>
-            <span className="text-xs font-bold text-indigo-600 uppercase tracking-widest">Browse Departments</span>
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white mt-1">
-              Curated Categories
-            </h2>
-          </div>
-          <Link
-            href="/products"
-            className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 group"
-          >
-            View All
-            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-          </Link>
-        </div>
+      <ProductRail id="featured-heading" title="Featured" eyebrow="Handpicked for you" href="/products" products={featured} />
+      <ProductRail id="new-heading" title="New arrivals" href="/products?sort=newest" products={newArrivals} />
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Link
-            href="/products?category=audio"
-            className="group relative p-6 rounded-3xl bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-slate-900 dark:to-slate-800/80 border border-indigo-100/60 dark:border-slate-800 hover:border-indigo-400 transition-all hover:-translate-y-1 shadow-sm"
-          >
-            <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center mb-4 group-hover:scale-110 transition-transform shadow-md shadow-indigo-600/20">
-              <Headphones className="w-6 h-6" />
-            </div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-white group-hover:text-indigo-600 transition-colors">
-              Audio & ANC
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">Headphones, In-Ear & DACs</p>
-          </Link>
-
-          <Link
-            href="/products?category=workspace"
-            className="group relative p-6 rounded-3xl bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-slate-900 dark:to-slate-800/80 border border-emerald-100/60 dark:border-slate-800 hover:border-emerald-400 transition-all hover:-translate-y-1 shadow-sm"
-          >
-            <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center mb-4 group-hover:scale-110 transition-transform shadow-md shadow-emerald-600/20">
-              <Keyboard className="w-6 h-6" />
-            </div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 transition-colors">
-              Keyboards & Desks
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">Custom CNC Mechanicals</p>
-          </Link>
-
-          <Link
-            href="/products?category=electronics"
-            className="group relative p-6 rounded-3xl bg-gradient-to-br from-amber-50 to-orange-50 dark:from-slate-900 dark:to-slate-800/80 border border-amber-100/60 dark:border-slate-800 hover:border-amber-400 transition-all hover:-translate-y-1 shadow-sm"
-          >
-            <div className="w-12 h-12 rounded-2xl bg-amber-600 text-white flex items-center justify-center mb-4 group-hover:scale-110 transition-transform shadow-md shadow-amber-600/20">
-              <Smartphone className="w-6 h-6" />
-            </div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-white group-hover:text-amber-600 transition-colors">
-              Smart Flagships
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">OLED Smartphones & Wearables</p>
-          </Link>
-
-          <Link
-            href="/products"
-            className="group relative p-6 rounded-3xl bg-gradient-to-br from-rose-50 to-pink-50 dark:from-slate-900 dark:to-slate-800/80 border border-rose-100/60 dark:border-slate-800 hover:border-rose-400 transition-all hover:-translate-y-1 shadow-sm"
-          >
-            <div className="w-12 h-12 rounded-2xl bg-rose-600 text-white flex items-center justify-center mb-4 group-hover:scale-110 transition-transform shadow-md shadow-rose-600/20">
-              <Zap className="w-6 h-6" />
-            </div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-white group-hover:text-rose-600 transition-colors">
-              Trending Drops
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">Limited edition gear</p>
-          </Link>
-        </div>
-      </section>
-
-      {/* 3. Featured Products Grid (FR-HOME-02 & FR-CAT-07) */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-end justify-between mb-8">
-          <div>
-            <span className="text-xs font-bold text-indigo-600 uppercase tracking-widest">Handpicked For You</span>
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white mt-1">
-              Featured Flagships
-            </h2>
-          </div>
-          <Link
-            href="/products"
-            className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 group"
-          >
-            Explore Catalog
-            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {featuredProducts.map((p) => {
-            const defaultVariant = p.variants[0];
-            const primaryImg = p.images.find((img) => img.isPrimary)?.url || p.images[0]?.url;
-            return (
-              <ProductCard
-                key={p.id}
-                id={p.id}
-                name={p.name}
-                slug={p.slug}
-                brandName={p.brand?.name}
-                categoryName={p.category?.name}
-                price={defaultVariant?.price || 0}
-                compareAtPrice={defaultVariant?.compareAtPrice}
-                imageUrl={primaryImg}
-                variantsCount={p.variants.length}
-                defaultVariantId={defaultVariant?.id || ""}
-                stock={defaultVariant?.stock || 0}
-              />
-            );
-          })}
-        </div>
-      </section>
-
-      {/* 4. Promotional Banner (Code: RIPZY10) */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="relative rounded-3xl overflow-hidden bg-gradient-to-r from-indigo-700 via-purple-700 to-rose-600 p-8 sm:p-12 text-white shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="space-y-2 max-w-xl text-center md:text-left">
-            <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-white/20 uppercase tracking-wider">
-              Exclusive Welcome Offer
+      {/* Offer banner */}
+      <section aria-label="Welcome offer" className="container-page">
+        <div className="flex flex-col items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-subtle sm:flex-row sm:items-center sm:p-8">
+          <div className="flex items-start gap-4">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600">
+              <Percent className="h-5 w-5" />
             </span>
-            <h3 className="text-2xl sm:text-3xl font-black">
-              Get 10% Off Your First Order Today
-            </h3>
-            <p className="text-sm text-indigo-100">
-              Apply coupon <code className="bg-black/30 px-2 py-0.5 rounded font-mono font-bold text-amber-300">RIPZY10</code> at checkout. Minimum order value ₹1,499.
-            </p>
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">Get 10% off your first order</h3>
+              <p className="mt-0.5 text-sm text-slate-600">
+                Apply coupon <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs font-semibold text-slate-800">RIPZY10</code> at checkout. Minimum order value ₹1,499.
+              </p>
+            </div>
           </div>
-          <Link
-            href="/products"
-            className="px-6 py-3 rounded-full bg-white text-indigo-900 font-bold text-sm hover:bg-slate-100 transition-transform hover:scale-105 active:scale-95 shadow-lg whitespace-nowrap"
-          >
-            Claim Discount Now
+          <Link href="/products" className="btn-primary shrink-0">
+            Start shopping
           </Link>
         </div>
       </section>
+
+      <ProductRail id="top-heading" title="Top rated" eyebrow="Loved by customers" href="/products" products={topRated} />
+      <ProductRail id="deals-heading" title="Deals" eyebrow="Biggest savings" href="/products" products={deals} />
+
+      {/* Brands */}
+      {brands.length > 0 && (
+        <section aria-labelledby="brands-heading" className="container-page">
+          <SectionHeader id="brands-heading" title="Shop by brand" href="/products" />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+            {brands.map((b) => (
+              <Link
+                key={b.id}
+                href={`/products?brand=${b.slug}`}
+                className="card flex h-16 items-center justify-center px-3 text-sm font-semibold text-slate-600 transition hover:text-indigo-600 hover:shadow-card"
+              >
+                {b.logo ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={b.logo} alt={b.name} loading="lazy" className="max-h-8 w-auto object-contain" />
+                ) : (
+                  b.name
+                )}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Benefits */}
+      <section aria-labelledby="why-heading" className="container-page">
+        <SectionHeader id="why-heading" title="Why shop with Ripzy" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {benefits.map(({ icon: Icon, title, text }) => (
+            <div key={title} className="card p-5">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                <Icon className="h-5 w-5" />
+              </span>
+              <h3 className="mt-3 text-sm font-semibold text-slate-900">{title}</h3>
+              <p className="mt-1 text-sm text-slate-600">{text}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <NewsletterCta />
     </div>
   );
 }

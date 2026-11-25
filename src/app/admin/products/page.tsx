@@ -1,56 +1,90 @@
-import React from "react";
-import Link from "next/link";
-import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
-import AdminProductListClient from "@/components/AdminProductListClient";
-import { ArrowLeft, Box } from "lucide-react";
+import Link from "next/link";
+import { Plus } from "lucide-react";
+import { getCurrentUser } from "@/lib/auth";
+import { can, isAdminRole } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
+import { queryProducts } from "@/lib/catalog-admin";
+import { PageHeader } from "@/components/admin/ui/PageHeader";
+import { btnPrimary } from "@/components/admin/ui/tokens";
+import ProductListClient from "@/components/admin/catalog/ProductListClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminProductsPage() {
-  const user = await getCurrentUser();
+type SP = Record<string, string | string[] | undefined>;
+const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) || "";
 
-  if (!user || !["STAFF", "MANAGER", "SUPER_ADMIN"].includes(user.role)) {
+export default async function AdminProductsPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const user = await getCurrentUser();
+  if (!user || !isAdminRole(user.role) || !can(user.role, "inventory.view")) {
     redirect("/login?next=/admin/products");
   }
+  const sp = await searchParams;
+  const filters = {
+    q: one(sp.q),
+    status: one(sp.status),
+    categoryId: one(sp.categoryId),
+    brandId: one(sp.brandId),
+    low: one(sp.low) === "1",
+    deleted: one(sp.deleted) === "1",
+    page: Number(one(sp.page)) || 1,
+  };
 
-  const products = await prisma.product.findMany({
-    where: { deletedAt: null },
-    include: {
-      brand: true,
-      category: true,
-      variants: {
-        orderBy: { price: "asc" },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const [result, categories, brands] = await Promise.all([
+    queryProducts({ ...filters, pageSize: 20 }),
+    prisma.category.findMany({ select: { id: true, name: true, level: true }, orderBy: [{ level: "asc" }, { name: "asc" }] }),
+    prisma.brand.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+  ]);
+
+  const products = result.products.map((p) => ({
+    id: p.id,
+    name: p.name,
+    slug: p.slug,
+    status: p.status,
+    isFeatured: p.isFeatured,
+    deleted: !!p.deletedAt,
+    brand: p.brand?.name ?? null,
+    category: p.category?.name ?? null,
+    image: p.images[0]?.url ?? null,
+    variants: p.variants.map((v) => ({
+      id: v.id,
+      sku: v.sku,
+      title: v.title,
+      price: v.price,
+      compareAtPrice: v.compareAtPrice,
+      stock: v.stock,
+      reservedStock: v.reservedStock,
+      lowStockThreshold: v.lowStockThreshold,
+    })),
+  }));
+
+  const canManage = can(user.role, "products.manage");
 
   return (
-    <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 pb-20">
-      <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between border-b border-slate-800">
-        <div className="flex items-center gap-3">
-          <Link href="/admin" className="p-1 text-slate-400 hover:text-white transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <span className="font-extrabold text-base">Product Master & Inventory</span>
-        </div>
-        <span className="text-xs text-slate-400">Total Products: {products.length}</span>
-      </div>
+    <div>
+      <PageHeader
+        title="Products & Stock"
+        description={`${result.total} product${result.total === 1 ? "" : "s"}. Every stock change is recorded in the immutable inventory ledger.`}
+        actions={
+          canManage ? (
+            <Link href="/admin/products/new" className={btnPrimary}>
+              <Plus className="h-4 w-4" /> New product
+            </Link>
+          ) : undefined
+        }
+      />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-white">
-            Inventory & Stock Manager
-          </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Adjust stock levels per variant. Every change is recorded in the immutable inventory ledger.
-          </p>
-        </div>
-
-        <AdminProductListClient initialProducts={products as any} />
-      </div>
+      <ProductListClient
+        products={products}
+        total={result.total}
+        page={result.page}
+        pages={result.pages}
+        filters={filters}
+        categories={categories}
+        brands={brands}
+        canManage={canManage}
+        canAdjust={can(user.role, "inventory.adjust")}
+      />
     </div>
   );
 }

@@ -1,58 +1,55 @@
 import type { Config } from "tailwindcss";
+import colors from "tailwindcss/colors";
 
+/**
+ * Light-only design system. Palette: warm off-white surfaces + dusty pink primary.
+ *  - `indigo` (used for every primary action) is remapped to a soft raspberry-pink scale
+ *  - `slate` (neutrals) is remapped to warm stone so greys feel soft, not bluish
+ *  - `rose` (errors / discount chips) is remapped to true red so it stays distinct from the pink primary
+ */
 const config: Config = {
   content: [
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
-  darkMode: "class",
   theme: {
     extend: {
       colors: {
-        brand: {
-          50: "#eef2ff",
-          100: "#e0e7ff",
-          200: "#c7d2fe",
-          300: "#a5b4fc",
-          400: "#818cf8",
-          500: "#6366f1",
-          600: "#4f46e5",
-          700: "#4338ca",
-          800: "#3730a3",
-          900: "#312e81",
-          950: "#1e1b4b",
+        indigo: {
+          50: "#fdf4f7",
+          100: "#fbe8ee",
+          200: "#f6d0dd",
+          300: "#eeaabf",
+          400: "#e27c9b",
+          500: "#d35880",
+          600: "#bf4268",
+          700: "#a03455",
+          800: "#832d48",
+          900: "#6c2a3f",
+          950: "#3b1220",
         },
-        accent: {
-          500: "#f43f5e",
-          600: "#e11d48",
-        },
-        surface: {
-          dark: "#0b0f19",
-          cardDark: "#111827",
-          borderDark: "#1f2937",
-        }
+        slate: colors.stone,
+        rose: colors.red,
+        ink: "#1f2937",
       },
       fontFamily: {
-        sans: ["var(--font-outfit)", "Inter", "sans-serif"],
+        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
+        display: ["var(--font-outfit)", "var(--font-inter)", "sans-serif"],
       },
       boxShadow: {
-        subtle: "0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03)",
-        glass: "0 8px 32px 0 rgba(0, 0, 0, 0.08)",
-        "glass-dark": "0 8px 32px 0 rgba(0, 0, 0, 0.37)",
-        glow: "0 0 25px -5px rgba(99, 102, 241, 0.4)",
+        subtle: "0 1px 2px 0 rgba(16, 24, 40, 0.04), 0 1px 3px 0 rgba(16, 24, 40, 0.06)",
+        card: "0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 12px -2px rgba(16, 24, 40, 0.06)",
+        pop: "0 12px 32px -8px rgba(16, 24, 40, 0.14)",
       },
       animation: {
-        "fade-in": "fadeIn 0.3s ease-in-out",
-        "slide-up": "slideUp 0.4s ease-out",
+        "fade-in": "fadeIn 0.25s ease-out",
+        "slide-up": "slideUp 0.3s ease-out",
       },
       keyframes: {
-        fadeIn: {
-          "0%": { opacity: "0" },
-          "100%": { opacity: "1" },
-        },
+        fadeIn: { "0%": { opacity: "0" }, "100%": { opacity: "1" } },
         slideUp: {
-          "0%": { opacity: "0", transform: "translateY(10px)" },
+          "0%": { opacity: "0", transform: "translateY(8px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
       },

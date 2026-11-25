@@ -120,13 +120,6 @@ Database schema is fully implemented in [`prisma/schema.prisma`](file:///prisma/
 
 ---
 
-## ⏭️ Phase 3 Roadmap & Enhancements
-1. **Abandoned Cart Email Scheduler (FR-NOTIF-02):** Background job triggering 24h reminders for abandoned carts.
-2. **Back-in-Stock Alerts (FR-NOTIF-03):** Email notification when out-of-stock items are restocked.
-3. **PWA & Offline Manifest:** Service worker, app manifest, installable on mobile devices.
-4. **Dark Mode Manual Toggle:** UI switcher for manual dark/light theme switching.
-
----
 
 ## ⚡ Quick Setup Instructions for Any New Machine
 ```bash
@@ -146,3 +139,43 @@ npx tsx prisma/seed.ts
 npm run dev
 # App will be live at http://localhost:3000
 ```
+
+---
+
+## Customer account and storefront self-service (added by account/storefront agent)
+- [x] Forgot/reset password (`/forgot-password`, `/reset-password`, `POST /api/auth/forgot-password|reset-password`; sha256-hashed 30-min tokens, tokenVersion bump, lockout cleared, SECURITY audit).
+- [x] Account area with side tabs: `/account` (overview), `/account/profile`, `/account/addresses` (CRUD, default, PIN, max 10), `/account/security` (change password, sign out other devices).
+- [x] Order detail `/account/orders/[id]` (timeline, shipment, refunds, invoice), cancel (`POST /api/orders/[id]/cancel`, Rule 6/8), return (`POST /api/orders/[id]/return`, Rule 7), orders list filter + pagination + reorder.
+- [x] Back-in-stock alerts (`POST /api/stock-alerts` + Notify me UI), saved addresses API for checkout (`GET /api/account/addresses`).
+- [x] Navbar account dropdown + ThemeToggle + mobile menu; products listing server pagination (12/page), real price sort, related products, review summary, JSON-LD (Product + BreadcrumbList).
+- [x] Login honours `?next=`, demo buttons hidden in production.
+- TODO: checkout page (other owner) should consume `GET /api/account/addresses` to pre-fill saved addresses.
+## ✅ Phase 3 — Enterprise Hardening & Full Admin (completed)
+
+**Foundation** (`src/lib/*`): `api.ts` (`handler()` = origin/CSRF check + rate limit + authn/authz + zod + uniform errors), `rbac.ts` (20 permissions x 4 roles, `ADMIN_NAV`), `auth.ts` (revocable sessions via `User.tokenVersion`, `getAdminUser(permission)`), `audit.ts`, `notify.ts`, `events.ts` (realtime bus), `settings.ts` (cached, admin-editable), `rate-limit.ts`, `stock-alerts.ts`, `orders.ts` (state machine, `cancelOrder`, refunds), `commerce.ts` (pricing/coupons/reservation expiry), `razorpay.ts`, `catalog.ts`, `marketing.ts`.
+**Security:** `src/proxy.ts` optimistic gate (real authz re-checked in server code), security headers in `next.config.ts`, JWT secret required in production (`env.ts`), login lockout + IP rate limit, password-reset tokens stored hashed, CSV formula-injection guard, webhook HMAC verification.
+**Realtime:** `/api/admin/stream` (SSE) -> admin bell, toasts and auto `router.refresh()` for orders/reviews/returns/low stock/customers.
+**Admin console** (`/admin`, sidebar from `ADMIN_NAV`, role-filtered): Dashboard (range, deltas, SVG charts), Orders (+detail, packing slip, refunds, shipments, notes, bulk, CSV), Returns, Products (full CRUD, variants, images, bulk, CSV), Categories/Brands/Attributes, Coupons, Banners (hero carousel), CMS Pages, Reviews, Customers, Staff & Roles, Reports, Notifications log, Audit log, Settings.
+**Storefront:** forgot/reset password, profile, addresses, security (sign out all devices), order detail with cancel/return, reorder, back-in-stock "Notify me", pagination, JSON-LD, dark-mode toggle, CMS pages, PWA (manifest + service worker + offline page), `sitemap.xml`, `robots.txt`, error/loading/not-found states.
+**Jobs:** `/api/cron/{release-reservations,abandoned-carts,back-in-stock}` (Bearer `CRON_SECRET`, scheduled in `vercel.json`). **Webhook:** `/api/webhooks/razorpay`.
+**Verified (prod build, runtime):** all admin pages 200 for SUPER_ADMIN; STAFF redirected from staff/settings/audit/coupons/reports and gets 403 from their APIs; cross-origin POST blocked; guest COD checkout, idempotency replay, stock deduct/restore + ledger on cancel, double-cancel blocked, lockout after 5 attempts, same response for real/unknown emails on forgot-password, SSE 401 for anonymous.
+
+### Known gaps / next work
+1. **Real Razorpay checkout** — checkout still sends a mock signature and never creates a Razorpay order (`pgOrderId` unset), so the webhook cannot match payments yet. Needs keys + server-side order creation + `checkout.js` on the client.
+2. **Real email delivery** — `notify()` only logs to the `notifications` table (reset links appear there). Wire SMTP/Resend in `notify.ts`.
+3. Checkout does not yet pre-fill from `GET /api/account/addresses`; billing-address toggle has no form.
+4. Realtime bus and rate limiter are in-memory (single instance) — move to Redis for multi-instance. SQLite -> PostgreSQL for production.
+5. Image uploads are URL-based; add object storage (S3/Cloudinary) upload.
+6. ESLint still reports ~22 pre-existing style errors (`any`, set-state-in-effect in contexts/Navbar); build and `tsc` are clean.
+7. No automated tests yet (unit tests for pricing/coupons/state machine + Playwright e2e recommended).
+
+### Phase 3.1 — Light theme & UI polish
+- Dark mode removed (light-only, soft palette: calm blue + muted coral; tokens in `tailwind.config.ts`/`globals.css`, helpers `.card .btn-primary .btn-secondary .input .container-page`).
+- New `Logo`/`LogoMark`, realistic responsive Navbar (announcement bar, search with keyboard nav, dynamic categories, mobile drawer), light Footer, light admin shell. Navbar/footer data is server-seeded via `src/lib/storefront.ts` + `StorefrontProvider`.
+- Rich admin dashboard (`src/components/admin/dashboard/`), shared admin primitives (`src/components/admin/ui/`), polished storefront/auth/account/checkout. Verified with screenshots at 1440px and 390px (no horizontal overflow).
+
+### Menswear demo catalogue
+- `npx tsx prisma/seed-fashion.ts` (additive + idempotent): 6 categories (Shirts, T-Shirts, Trousers & Chinos, Jackets, Hoodies & Sweatshirts, Suits & Blazers), 2 fictional brands (Northline, Urban Thread), 14 products with colour x size (S-XL) variants, GST 5% (<= Rs 2,500) / 18% (above), plus 2 homepage banners. Original copy; logo-free Unsplash stock photos. Electronics demo data is kept; delete it in /admin/products if a fashion-only store is wanted.
+
+### Theme: warm white + dusty pink
+- Palette lives only in `tailwind.config.ts`: `indigo` = raspberry/dusty pink (primary), `slate` = warm stone neutrals, `rose` = red (errors/discounts). Page bg `#fbf8f7`. Change the 11 values of `indigo` there to re-theme the whole site.

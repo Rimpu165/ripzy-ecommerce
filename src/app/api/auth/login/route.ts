@@ -1,13 +1,24 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
-import { signToken } from "@/lib/auth";
+import { signToken, COOKIE_NAME, sessionCookieOptions } from "@/lib/auth";
+import { audit } from "@/lib/audit";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
+import type { Role } from "@/lib/rbac";
 
 export async function POST(req: Request) {
   try {
+    const rl = rateLimit(`login:${clientIp(req)}`, 20, 15 * 60 * 1000);
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: "Too many login attempts from this network. Try again later." },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
+      );
+    }
+
     const { email, password, guestSessionId } = await req.json();
 
-    if (!email || !password) {
+    if (typeof email !== "string" || typeof password !== "string" || !email || !password) {
       return NextResponse.json(
         { error: "Email and password are required." },
         { status: 400 }
@@ -124,11 +135,15 @@ export async function POST(req: Request) {
       }
     }
 
+    await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    await audit({ userId: user.id, action: "LOGIN", entityType: "USER", entityId: user.id, req });
+
     const token = signToken({
       userId: user.id,
       email: user.email,
       name: user.name,
-      role: user.role as any,
+      role: user.role as Role,
+      tv: user.tokenVersion,
     });
 
     const res = NextResponse.json({
@@ -141,13 +156,7 @@ export async function POST(req: Request) {
       },
     });
 
-    res.cookies.set("ripzy_session", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60,
-      path: "/",
-    });
+    res.cookies.set(COOKIE_NAME, token, sessionCookieOptions);
 
     return res;
   } catch (error) {

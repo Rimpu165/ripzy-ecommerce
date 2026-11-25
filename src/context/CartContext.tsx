@@ -18,7 +18,28 @@ export interface CartItem {
   lineTotal: number;
 }
 
+export interface CartConfig {
+  freeShippingThreshold: number;
+  flatFee: number;
+  returnWindowDays: number;
+  stockReservationMinutes: number;
+  codEnabled: boolean;
+  codMaxAmount: number;
+  maintenance: boolean;
+}
+
+const DEFAULT_CONFIG: CartConfig = {
+  freeShippingThreshold: 999,
+  flatFee: 79,
+  returnWindowDays: 7,
+  stockReservationMinutes: 15,
+  codEnabled: true,
+  codMaxAmount: 50000,
+  maintenance: false,
+};
+
 interface CartContextType {
+  config: CartConfig;
   items: CartItem[];
   subtotal: number;
   discountTotal: number;
@@ -50,6 +71,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [itemCount, setItemCount] = useState(0);
   const [couponCode, setCouponCode] = useState<string | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [config, setConfig] = useState<CartConfig>(DEFAULT_CONFIG);
 
   const getGuestSessionId = () => {
     if (typeof window === "undefined") return "";
@@ -75,6 +97,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         setGrandTotal(data.grandTotal || 0);
         setItemCount(data.itemCount || 0);
         setCouponCode(data.couponCode || null);
+        if (data.config) setConfig({ ...DEFAULT_CONFIG, ...data.config });
       }
     } catch (err) {
       console.error("Cart refresh error:", err);
@@ -159,6 +182,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   return (
     <CartContext.Provider
       value={{
+        config,
         items,
         subtotal,
         discountTotal,

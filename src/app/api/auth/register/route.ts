@@ -1,82 +1,54 @@
+import { z } from "zod";
+import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import bcrypt from "bcryptjs";
-import { signToken } from "@/lib/auth";
+import { COOKIE_NAME, sessionCookieOptions, signToken } from "@/lib/auth";
+import { handler, parseJson, fail } from "@/lib/api";
+import { notify } from "@/lib/notify";
+import { publish } from "@/lib/events";
+import type { Role } from "@/lib/rbac";
 
-export async function POST(req: Request) {
-  try {
-    const { name, email, password, phone } = await req.json();
+const schema = z.object({
+  name: z.string().trim().min(2, "Name is required.").max(80),
+  email: z.string().trim().toLowerCase().email("Enter a valid email address."),
+  password: z
+    .string()
+    .regex(/^(?=.*[A-Za-z])(?=.*\d).{8,}$/, "Password must be at least 8 characters long and contain at least 1 letter and 1 number."),
+  phone: z.string().trim().max(20).optional().nullable(),
+});
 
-    if (!name || !email || !password) {
-      return NextResponse.json(
-        { error: "Name, email and password are required." },
-        { status: 400 }
-      );
-    }
+export const POST = handler({ limit: { max: 10, windowMs: 60 * 60 * 1000, key: "register" } }, async ({ req }) => {
+  const { name, email, password, phone } = await parseJson(req, schema);
 
-    // Password rule: min 8 chars, 1 letter, 1 number (FR-AUTH-01)
-    const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
-    if (!passwordRegex.test(password)) {
-      return NextResponse.json(
-        { error: "Password must be at least 8 characters long and contain at least 1 letter and 1 number." },
-        { status: 400 }
-      );
-    }
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) return fail(409, "An account with this email address already exists.");
 
-    const normalizedEmail = email.toLowerCase().trim();
+  const passwordHash = await bcrypt.hash(password, 12);
+  const user = await prisma.user.create({
+    data: { name, email, passwordHash, phone: phone || null, role: "CUSTOMER" },
+  });
 
-    // Unique email check (FR-AUTH-02)
-    const existing = await prisma.user.findUnique({
-      where: { email: normalizedEmail },
-    });
+  await notify({
+    userId: user.id,
+    to: user.email,
+    type: "WELCOME",
+    subject: "Welcome to Ripzy!",
+    content: `Hi ${user.name}, your Ripzy account is ready. Happy shopping!`,
+  });
+  publish({ type: "customer.registered", title: "New customer", message: user.email, href: "/admin/customers" });
 
-    if (existing) {
-      return NextResponse.json(
-        { error: "An account with this email address already exists." },
-        { status: 409 }
-      );
-    }
+  const token = signToken({
+    userId: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role as Role,
+    tv: user.tokenVersion,
+  });
 
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    const user = await prisma.user.create({
-      data: {
-        name,
-        email: normalizedEmail,
-        passwordHash,
-        phone: phone || null,
-        role: "CUSTOMER",
-      },
-    });
-
-    const token = signToken({
-      userId: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role as any,
-    });
-
-    const res = NextResponse.json({
-      success: true,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-      },
-    });
-
-    res.cookies.set("ripzy_session", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60,
-      path: "/",
-    });
-
-    return res;
-  } catch (error) {
-    console.error("Registration error:", error);
-    return NextResponse.json({ error: "Something went wrong during registration." }, { status: 500 });
-  }
-}
+  const res = NextResponse.json({
+    success: true,
+    user: { id: user.id, name: user.name, email: user.email, role: user.role },
+  });
+  res.cookies.set(COOKIE_NAME, token, sessionCookieOptions);
+  return res;
+});

@@ -1,53 +1,67 @@
-import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { ApiError, handler, ok, parseJson } from "@/lib/api";
+import { audit } from "@/lib/audit";
+import { handleStockChange } from "@/lib/stock-alerts";
+import { invalidateCatalog } from "@/lib/catalog";
 
-export async function POST(req: Request) {
-  try {
-    const user = await getCurrentUser();
-    if (!user || !["STAFF", "MANAGER", "SUPER_ADMIN"].includes(user.role)) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-    }
+const schema = z.object({
+  variantId: z.string().min(1),
+  changeQty: z.number().int().min(-100000).max(100000).refine((n) => n !== 0, "changeQty cannot be 0"),
+  reason: z.enum(["RESTOCK", "MANUAL_ADJUSTMENT"]).default("MANUAL_ADJUSTMENT"),
+  note: z.string().max(200).optional(),
+});
 
-    const { variantId, changeQty, reason = "MANUAL_ADJUSTMENT" } = await req.json();
+export const POST = handler({ permission: "inventory.adjust", limit: { max: 120, windowMs: 60_000 } }, async ({ user, req }) => {
+  const body = await parseJson(req, schema);
 
-    if (!variantId || changeQty === undefined) {
-      return NextResponse.json({ error: "variantId and changeQty are required" }, { status: 400 });
-    }
-
-    const variant = await prisma.productVariant.findUnique({
-      where: { id: variantId },
+  const result = await prisma.$transaction(async (tx) => {
+    const variant = await tx.productVariant.findUnique({
+      where: { id: body.variantId },
+      include: { product: { select: { slug: true } } },
     });
+    if (!variant) throw new ApiError(404, "Variant not found");
 
-    if (!variant) {
-      return NextResponse.json({ error: "Variant not found" }, { status: 404 });
+    const newStock = variant.stock + body.changeQty;
+    if (newStock < 0) throw new ApiError(400, "Stock cannot go below 0.");
+    if (newStock < variant.reservedStock) {
+      throw new ApiError(409, `Cannot reduce stock below ${variant.reservedStock} reserved units.`);
     }
 
-    const newStock = Math.max(0, variant.stock + changeQty);
-
-    // Concurrency-safe transaction writing to inventory ledger (FR-INV-02 & Rule 2)
-    await prisma.$transaction(async (tx) => {
-      await tx.productVariant.update({
-        where: { id: variant.id },
-        data: { stock: newStock },
-      });
-
-      await tx.inventoryLedger.create({
-        data: {
-          variantId: variant.id,
-          changeQty,
-          previousStock: variant.stock,
-          newStock,
-          reason,
-          referenceId: `ADJUST-${Date.now()}`,
-          createdBy: `${user.name} (${user.role})`,
-        },
-      });
+    // Guarded write: only applies if stock is still what we read (concurrency safety).
+    const updated = await tx.productVariant.updateMany({
+      where: { id: variant.id, stock: variant.stock },
+      data: { stock: newStock },
     });
+    if (updated.count === 0) throw new ApiError(409, "Stock changed concurrently. Please retry.");
 
-    return NextResponse.json({ success: true, newStock, message: "Stock successfully updated" });
-  } catch (error) {
-    console.error("Inventory adjustment error:", error);
-    return NextResponse.json({ error: "Failed to adjust stock." }, { status: 500 });
-  }
-}
+    await tx.inventoryLedger.create({
+      data: {
+        variantId: variant.id,
+        changeQty: body.changeQty,
+        previousStock: variant.stock,
+        newStock,
+        reason: body.reason,
+        referenceId: body.note?.trim() || `ADJUST-${Date.now()}`,
+        createdBy: user ? `${user.name} (${user.role})` : "SYSTEM",
+      },
+    });
+    return { variant, newStock };
+  });
+
+  const { variant, newStock } = result;
+  if (body.changeQty > 0) await handleStockChange(variant.id, variant.stock - variant.reservedStock);
+
+  await audit({
+    userId: user?.id,
+    action: "UPDATE",
+    entityType: "InventoryAdjustment",
+    entityId: variant.id,
+    oldValues: { stock: variant.stock },
+    newValues: { stock: newStock, reason: body.reason, sku: variant.sku },
+    req,
+  });
+  invalidateCatalog(variant.product.slug);
+
+  return ok({ success: true, newStock, message: "Stock successfully updated" });
+});

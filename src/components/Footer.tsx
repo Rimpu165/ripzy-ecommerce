@@ -1,156 +1,102 @@
+"use client";
+
 import React from "react";
 import Link from "next/link";
-import { ShieldCheck, Truck, RotateCcw, Award } from "lucide-react";
+import { ShieldCheck, Truck, RotateCcw, Headphones, Mail, Phone, MapPin } from "lucide-react";
+import Logo from "@/components/ui/Logo";
+import { useStorefront } from "@/lib/use-storefront";
 
 export default function Footer() {
+  const { pages, categories, store } = useStorefront();
+
+  const perks = [
+    { icon: Truck, title: "Free delivery", text: `On orders above ₹${store.freeShippingThreshold.toLocaleString("en-IN")}` },
+    { icon: RotateCcw, title: "Easy returns", text: `${store.returnWindowDays}-day hassle-free returns` },
+    { icon: ShieldCheck, title: "Secure payments", text: "UPI, cards, netbanking & COD" },
+    { icon: Headphones, title: "Friendly support", text: "We reply within one business day" },
+  ];
+
+  const link = "text-slate-600 transition hover:text-indigo-700";
+
   return (
-    <footer className="bg-slate-950 text-slate-400 text-sm border-t border-slate-800">
-      {/* Trust Badges */}
-      <div className="border-b border-slate-900 bg-slate-900/40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 grid grid-cols-2 md:grid-cols-4 gap-6">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400">
-              <Truck className="w-5 h-5" />
+    <footer className="mt-16 border-t border-slate-200 bg-white text-sm">
+      <div className="border-b border-slate-100 bg-slate-50/70">
+        <div className="container-page grid grid-cols-2 gap-5 py-7 lg:grid-cols-4">
+          {perks.map(({ icon: Icon, title, text }) => (
+            <div key={title} className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-600 shadow-subtle ring-1 ring-slate-200">
+                <Icon className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="font-semibold text-slate-800">{title}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{text}</p>
+              </div>
             </div>
-            <div>
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider">Free Delivery</h4>
-              <p className="text-[11px] text-slate-500">On all orders above ₹999</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider">Secure Payment</h4>
-              <p className="text-[11px] text-slate-500">256-bit encrypted Razorpay</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400">
-              <RotateCcw className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider">7-Day Returns</h4>
-              <p className="text-[11px] text-slate-500">Hassle-free replacements</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400">
-              <Award className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider">100% Genuine</h4>
-              <p className="text-[11px] text-slate-500">Direct brand warranty</p>
-            </div>
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* Main Footer Links */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid grid-cols-1 md:grid-cols-5 gap-8">
-        <div className="md:col-span-2 space-y-4">
-          <div className="flex items-center gap-2">
-            <span className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-500 to-rose-500 flex items-center justify-center text-white font-extrabold text-sm">
-              R
-            </span>
-            <span className="text-xl font-black text-white">Ripzy.</span>
-          </div>
-          <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
-            Ripzy is the premier destination for design-first electronics, audiophile sound systems, and minimalist mechanical workspace gear.
+      <div className="container-page grid gap-10 py-12 sm:grid-cols-2 lg:grid-cols-12">
+        <div className="lg:col-span-4">
+          <Logo size={38} showTagline />
+          <p className="mt-4 max-w-sm leading-relaxed text-slate-500">
+            Curated electronics and workspace essentials, delivered across India with transparent pricing, GST invoices and reliable after-sales support.
           </p>
-          <div className="pt-2 text-xs text-slate-500 space-y-1">
-            <p>Customer Care: support@ripzy.com</p>
-            <p>Hotline: +91 98765 43210 (10 AM - 7 PM)</p>
-          </div>
-        </div>
-
-        <div>
-          <h4 className="text-xs font-bold uppercase tracking-wider text-white mb-4">Shop Categories</h4>
-          <ul className="space-y-2 text-xs">
-            <li>
-              <Link href="/products?category=electronics" className="hover:text-white transition-colors">
-                Electronics & Phones
-              </Link>
-            </li>
-            <li>
-              <Link href="/products?category=audio" className="hover:text-white transition-colors">
-                Noise Cancelling Audio
-              </Link>
-            </li>
-            <li>
-              <Link href="/products?category=workspace" className="hover:text-white transition-colors">
-                Custom Mechanical Keyboards
-              </Link>
-            </li>
-            <li>
-              <Link href="/products?category=wearables" className="hover:text-white transition-colors">
-                Smart Wearables
-              </Link>
-            </li>
+          <ul className="mt-5 space-y-2.5 text-slate-600">
+            {store.supportEmail && (
+              <li className="flex items-center gap-2.5"><Mail className="h-4 w-4 text-slate-400" /><a className={link} href={`mailto:${store.supportEmail}`}>{store.supportEmail}</a></li>
+            )}
+            {store.supportPhone && (
+              <li className="flex items-center gap-2.5"><Phone className="h-4 w-4 text-slate-400" /><a className={link} href={`tel:${store.supportPhone.replace(/\s/g, "")}`}>{store.supportPhone}</a></li>
+            )}
+            {store.address && (
+              <li className="flex items-start gap-2.5"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" /><span>{store.address}</span></li>
+            )}
           </ul>
         </div>
 
-        <div>
-          <h4 className="text-xs font-bold uppercase tracking-wider text-white mb-4">Customer Care</h4>
-          <ul className="space-y-2 text-xs">
-            <li>
-              <Link href="/account/orders" className="hover:text-white transition-colors">
-                Track Your Order
-              </Link>
-            </li>
-            <li>
-              <Link href="/pages/returns" className="hover:text-white transition-colors">
-                Return & Refund Policy
-              </Link>
-            </li>
-            <li>
-              <Link href="/pages/shipping" className="hover:text-white transition-colors">
-                Shipping Information
-              </Link>
-            </li>
-            <li>
-              <Link href="/pages/faq" className="hover:text-white transition-colors">
-                Frequently Asked Questions
-              </Link>
-            </li>
+        <nav aria-label="Shop" className="lg:col-span-2">
+          <h3 className="mb-4 font-semibold text-slate-900">Shop</h3>
+          <ul className="space-y-2.5">
+            <li><Link className={link} href="/products">All products</Link></li>
+            {categories.map((c) => (
+              <li key={c.id}><Link className={link} href={`/products?category=${c.slug}`}>{c.name}</Link></li>
+            ))}
+            <li><Link className={link} href="/products?sort=newest">New arrivals</Link></li>
           </ul>
-        </div>
+        </nav>
 
-        <div>
-          <h4 className="text-xs font-bold uppercase tracking-wider text-white mb-4">Company</h4>
-          <ul className="space-y-2 text-xs">
-            <li>
-              <Link href="/pages/about" className="hover:text-white transition-colors">
-                About Ripzy
-              </Link>
-            </li>
-            <li>
-              <Link href="/pages/privacy" className="hover:text-white transition-colors">
-                Privacy Policy
-              </Link>
-            </li>
-            <li>
-              <Link href="/pages/terms" className="hover:text-white transition-colors">
-                Terms of Service
-              </Link>
-            </li>
-            <li>
-              <Link href="/admin" className="text-indigo-400 hover:text-indigo-300 font-semibold transition-colors">
-                Admin Portal
-              </Link>
-            </li>
+        <nav aria-label="Account" className="lg:col-span-3">
+          <h3 className="mb-4 font-semibold text-slate-900">My account</h3>
+          <ul className="space-y-2.5">
+            <li><Link className={link} href="/account/orders">Track &amp; manage orders</Link></li>
+            <li><Link className={link} href="/wishlist">Wishlist</Link></li>
+            <li><Link className={link} href="/account/addresses">Saved addresses</Link></li>
+            <li><Link className={link} href="/account/profile">Profile &amp; security</Link></li>
+            <li><Link className={link} href="/forgot-password">Forgot password</Link></li>
           </ul>
-        </div>
+        </nav>
+
+        <nav aria-label="Company" className="lg:col-span-3">
+          <h3 className="mb-4 font-semibold text-slate-900">Company &amp; policies</h3>
+          <ul className="space-y-2.5">
+            {pages.length === 0 && <li className="text-slate-400">Coming soon</li>}
+            {pages.map((p) => (
+              <li key={p.slug}><Link className={link} href={`/pages/${p.slug}`}>{p.title}</Link></li>
+            ))}
+          </ul>
+        </nav>
       </div>
 
-      {/* Copyright */}
-      <div className="border-t border-slate-900 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
-        <p>© {new Date().getFullYear()} Ripzy Technologies Pvt. Ltd. All rights reserved.</p>
-        <p className="flex items-center gap-2">
-          <span>Accepted Payments:</span>
-          <span className="font-semibold text-slate-400">Razorpay • UPI • Cards • NetBanking • COD</span>
-        </p>
+      <div className="border-t border-slate-100">
+        <div className="container-page flex flex-col items-center justify-between gap-3 py-5 text-xs text-slate-500 sm:flex-row">
+          <p>© {new Date().getFullYear()} {store.name}. All rights reserved. Prices inclusive of applicable GST.</p>
+          <ul className="flex items-center gap-2 text-[11px] font-medium text-slate-500">
+            {["UPI", "Visa", "Mastercard", "RuPay", "COD"].map((m) => (
+              <li key={m} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1">{m}</li>
+            ))}
+          </ul>
+        </div>
       </div>
     </footer>
   );
